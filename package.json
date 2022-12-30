@@ -1,0 +1,19 @@
+{
+  "name": "com.sceneboard",
+  "version": "1.0.0",
+  "description": "A window to improve scene and project management by allowing users to drop assets, components and notes onto a canvas",
+  "displayName": "SceneBoard",
+  "unity": "2018.3",
+  "author": {
+    "name": "Louis Crahay (Eideren)",
+    "url": "https://github.com/Eideren"
+  },
+  "documentationUrl": "",
+  "keywords": [
+    "Scene",
+    "Board",
+    "Node",
+    "Management",
+    "Editor"
+  ]
+}
