@@ -180,15 +180,20 @@ namespace SceneBoard.NodeEditor
 				}
 			}
 
+			if (e.type == EventType.ScrollWheel)
+			{
+				var preZoomPos = ViewportToWorld(e.mousePosition);
+				ZoomLevel *= e.delta.y < 0 ? 1.1f : 0.9f;
+				var postZoomPos = ViewportToWorld(e.mousePosition);
+				ViewportPosition += postZoomPos - preZoomPos;
+			}
+
 			if( e.type == EventType.Repaint )
 			{
 				foreach( var line in Lines )
 					DrawLine( line.a, line.b, line.color, LineWidth * ZoomLevel );
 			}
 			Lines.Clear();
-
-			if( e.type == EventType.ScrollWheel )
-				ZoomLevel *= e.delta.y < 0 ? 1.1f : 0.9f;
 
 			foreach( var (_, rRef) in LinkTargets )
 				rRef.upToDate = false;
