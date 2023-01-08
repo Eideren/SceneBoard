@@ -136,7 +136,15 @@
                 {
                     DragAndDrop.AcceptDrag();
                     foreach (var o in DragAndDrop.objectReferences)
+                    {
+                        if (Storage is BoardAsset && IsSceneObject(o))
+                        {
+                            EditorUtility.DisplayDialog("Invalid Drag and Drop", $"Cannot store scene objects in assets.\n{o} => {Storage}", "Ok");
+                            continue;
+                        }
+
                         AddAndDirty(new ObjectNode{ UnityObject = o, Pos = ViewportToWorld(Event.current.mousePosition) });
+                    }
                 }
             }
 
@@ -162,7 +170,7 @@
                 {
                     contextMenu.AddItem(addReferencedObjContent, false, () =>
                     {
-                        foreach (var reference in ExtractReferences(objNode.UnityObject))
+                        foreach (var reference in ExtractReferences(objNode.UnityObject, __boardAsset != null))
                         {
                             var v = this.Storage.Objs.Find(x => x is ObjectNode on && ReferenceEquals(on.UnityObject, reference));
                             if (v == null)
@@ -237,10 +245,10 @@
                 pingContent.text = PingOnClick ? "Ping Enabled" : "Ping Disabled";
             }));
         }
-        
-        
 
-        static HashSet<Object> ExtractReferences(Object obj)
+        static bool IsSceneObject(Object o) => o is GameObject or Component;
+
+        static HashSet<Object> ExtractReferences(Object obj, bool assetOnly)
         {
             var output = new HashSet<Object>();
             using var sO = new SerializedObject(obj);
@@ -304,14 +312,15 @@
                     default:
                         continue;
                 }
-                if (objRef is Object o && o != null && (o is Component or GameObject || AssetDatabase.Contains(o)))
-                    output.Add(o);
+
+                if (objRef == null)
+                    continue;
+                if (assetOnly == false && IsSceneObject(objRef) || AssetDatabase.Contains(objRef))
+                    output.Add(objRef);
             }
 
             return output;
         }
-        
-        
 
         [Serializable] public class ObjectNode : INode, IStorable
         {
@@ -367,7 +376,7 @@
                     _objUnityContent = new GUIContent(tempContent.text, tempContent.image, tempContent.tooltip);
                 }
 
-                _references ??= ExtractReferences(UnityObject);
+                _references ??= ExtractReferences(UnityObject, ((BoardEditor)drawer.Editor).__boardAsset != null);
 
                 if(drawer.IsInView(out var r, 3f))
                     GUI.Box(r, _objUnityContent.image);
