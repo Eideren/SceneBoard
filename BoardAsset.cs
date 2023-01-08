@@ -3,12 +3,13 @@
     using System.Collections.Generic;
     using UnityEngine;
 
-    public class SceneBoardStorage : MonoBehaviour, IBoardStorage
+    [CreateAssetMenu(menuName = "Board Asset")]
+    public class BoardAsset : ScriptableObject, IBoardStorage
     {
-        [SerializeReference]public List<IStorable> objs = new ();
+        [SerializeReference] public List<IStorable> Objs = new ();
         public List<string> AddedByDefault = new ();
         
-        List<IStorable> IBoardStorage.Objs => objs;
+        List<IStorable> IBoardStorage.Objs => Objs;
         List<string> IBoardStorage.AddedByDefault => AddedByDefault;
     }
 }

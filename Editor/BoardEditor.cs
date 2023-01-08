@@ -10,24 +10,36 @@
     using Object = UnityEngine.Object;
 
 
-    public class SceneBoard : NodeEditorWindow
+    public class BoardEditor : NodeEditorWindow
     {
         static readonly GUIContent _tempGUIContent = new();
-        
-        
-        
-        SceneBoardStorage _storage;
-        
-        
-        
+
+        // Can't reference UnityEngine.Object with SerializeReference
+        // so have to do this nonsense, or write a more complex system
+        public IBoardStorage Storage
+        {
+            get => __boardAsset != null ? __boardAsset : __sceneStorage;
+            set
+            { 
+                if (value is SceneBoardStorage s)
+                    __sceneStorage = s;
+                else
+                    __boardAsset = (BoardAsset)value;
+                
+            }
+        }
+        [SerializeField] SceneBoardStorage __sceneStorage;
+        [SerializeField] BoardAsset __boardAsset;
         public bool PingOnClick = true, SelectGO;
+        string _title;
         
         
 
         [MenuItem("Window/Scene Board")]
         public static void OpenSceneBoard()
         {
-            var win = CreateWindow<SceneBoard>();
+            var win = CreateWindow<BoardEditor>();
+            win.Storage = FindStorage();
             win.Show();
         }
         
@@ -49,8 +61,7 @@
         
         protected override IEnumerable<INode> Nodes()
         {
-            _storage ??= FindStorage();
-            foreach (var storable in _storage.objs)
+            foreach (var storable in Storage.Objs)
                 yield return (INode)storable;
         }
         
@@ -58,28 +69,31 @@
 
         void Refresh()
         {
-            var scene = SceneManager.GetActiveScene();
-            foreach (var typeName in _storage.AddedByDefault)
+            if (Storage is SceneBoardStorage)
             {
-                var type = AppDomain.CurrentDomain.GetAssemblies()
-                    .Select(a => a.GetType(typeName, false))
-                    .FirstOrDefault(x => x != null);
-                
-                if (type == null)
-                    continue;
-
-                foreach (var go in scene.GetRootGameObjects())
+                var scene = SceneManager.GetActiveScene();
+                foreach (var typeName in Storage.AddedByDefault)
                 {
-                    foreach (var comp in go.GetComponentsInChildren(type))
+                    var type = AppDomain.CurrentDomain.GetAssemblies()
+                        .Select(a => a.GetType(typeName, false))
+                        .FirstOrDefault(x => x != null);
+                    
+                    if (type == null)
+                        continue;
+
+                    foreach (var go in scene.GetRootGameObjects())
                     {
-                        if (_storage.objs.Find(x => x is ObjectNode on && on.UnityObject == comp) != null)
-                            continue;
-                        _storage.objs.Add(new ObjectNode{ UnityObject = comp });
+                        foreach (var comp in go.GetComponentsInChildren(type))
+                        {
+                            if (Storage.Objs.Find(x => x is ObjectNode on && on.UnityObject == comp) != null)
+                                continue;
+                            AddAndDirty(new ObjectNode{ UnityObject = comp });
+                        }
                     }
                 }
             }
             
-            foreach (var storable in _storage.objs)
+            foreach (var storable in Storage.Objs)
             {
                 if(storable is ObjectNode on)
                     on.Refresh();
@@ -90,8 +104,8 @@
 
         protected override void OnGUIDraw()
         {
-            _storage ??= FindStorage();
-
+            if(this.Storage != null)
+                titleContent.text = _title ??= this.Storage.ToString();
             var e = Event.current;
             {
                 if (e.button == 0 && e.isMouse && e.type == EventType.MouseDown && NodeUnderMouse is ObjectNode objNode)
@@ -106,7 +120,10 @@
                 }
             }
             
+            EditorGUI.BeginChangeCheck();
             base.OnGUIDraw();
+            if (EditorGUI.EndChangeCheck())
+                EditorUtility.SetDirty((Object)Storage);
 
             if (DragAndDrop.objectReferences.Length > 0)
             {
@@ -119,13 +136,13 @@
                 {
                     DragAndDrop.AcceptDrag();
                     foreach (var o in DragAndDrop.objectReferences)
-                        _storage.objs.Add(new ObjectNode{ UnityObject = o, Pos = ViewportToWorld(Event.current.mousePosition) });
+                        AddAndDirty(new ObjectNode{ UnityObject = o, Pos = ViewportToWorld(Event.current.mousePosition) });
                 }
             }
 
-            if (GUIUtility.keyboardControl == 0 && e.keyCode == KeyCode.Delete && NodeUnderMouse is SceneBoardStorage.IStorable storable)
+            if (GUIUtility.keyboardControl == 0 && e.keyCode == KeyCode.Delete && NodeUnderMouse is IStorable storable)
             {
-                _storage.objs.Remove(storable);
+                RemoveAndDirty(storable);
                 this.Repaint();
             }
 
@@ -137,19 +154,19 @@
                     "Any references to other objects the currently selected object has will be added to the board");
                 
                 var contextMenu = new GenericMenu();
-                contextMenu.AddItem(new GUIContent("New Note"), false, () => _storage.objs.Add(new NoteNode{ Pos = mousePosWorld }));
-                contextMenu.AddItem(new GUIContent("New Header"), false, () => _storage.objs.Add(new HeaderNode{ Pos = mousePosWorld }));
+                contextMenu.AddItem(new GUIContent("New Note"), false, () => AddAndDirty(new NoteNode{ Pos = mousePosWorld }));
+                contextMenu.AddItem(new GUIContent("New Header"), false, () => AddAndDirty(new HeaderNode{ Pos = mousePosWorld }));
                 if (this.NodeUnderMouse is {} node)
-                    contextMenu.AddItem(deleteNodeContent, false, () => _storage.objs.Remove((SceneBoardStorage.IStorable)node));
+                    contextMenu.AddItem(deleteNodeContent, false, () => RemoveAndDirty((IStorable)node));
                 if (this.NodeUnderMouse is ObjectNode objNode)
                 {
                     contextMenu.AddItem(addReferencedObjContent, false, () =>
                     {
                         foreach (var reference in ExtractReferences(objNode.UnityObject))
                         {
-                            var v = this._storage.objs.Find(x => x is ObjectNode on && ReferenceEquals(on.UnityObject, reference));
+                            var v = this.Storage.Objs.Find(x => x is ObjectNode on && ReferenceEquals(on.UnityObject, reference));
                             if (v == null)
-                                _storage.objs.Add(new ObjectNode{ UnityObject = reference, Pos = mousePosWorld });
+                                AddAndDirty(new ObjectNode{ UnityObject = reference, Pos = mousePosWorld });
                         }
                     });
                 }
@@ -157,9 +174,21 @@
                 e.Use();
             }
         }
-        
-        
-        
+
+        void AddAndDirty(IStorable s)
+        {
+            Storage.Objs.Add(s);
+            EditorUtility.SetDirty((Object)Storage);
+        }
+
+        void RemoveAndDirty(IStorable s)
+        {
+            Storage.Objs.Remove(s);
+            EditorUtility.SetDirty((Object)Storage);
+        }
+
+
+
         protected override void PrepareToolbar(List<(GUIContent, Action)> buttons)
         {
             base.PrepareToolbar(buttons);
@@ -174,7 +203,7 @@
                 var contextMenu = new GenericMenu();
 
                 var types = new HashSet<Type>();
-                foreach (var storable in _storage.objs)
+                foreach (var storable in Storage.Objs)
                 {
                     if (storable is not ObjectNode on || on.UnityObject is not Component)
                         continue;
@@ -185,14 +214,14 @@
                     }
                 }
 
-                foreach (var type in from t in _storage.AddedByDefault orderby t select t)
-                    contextMenu.AddItem(new GUIContent(type), true, () => { _storage.AddedByDefault.Remove(type); });
+                foreach (var type in from t in Storage.AddedByDefault orderby t select t)
+                    contextMenu.AddItem(new GUIContent(type), true, () => { Storage.AddedByDefault.Remove(type); });
 
                 foreach (var type in from t in types orderby t.FullName select t)
                 {
-                    if (_storage.AddedByDefault.Contains(type.FullName))
+                    if (Storage.AddedByDefault.Contains(type.FullName))
                         continue;
-                    contextMenu.AddItem(new GUIContent(type.FullName), false, () => { _storage.AddedByDefault.Add(type.FullName); });
+                    contextMenu.AddItem(new GUIContent(type.FullName), false, () => { Storage.AddedByDefault.Add(type.FullName); });
                 }
 
                 contextMenu.DropDown(new Rect(default, default));
@@ -284,7 +313,7 @@
         
         
 
-        [Serializable] public class ObjectNode : INode, SceneBoardStorage.IStorable
+        [Serializable] public class ObjectNode : INode, IStorable
         {
             public Object UnityObject;
             public Vector2 Pos;
@@ -357,8 +386,8 @@
                     var color = Color.white;
                     color.a = 0.1f;
                     var thisCenter = drawer.SurfaceCovered.center;
-                    var editor = (SceneBoard)drawer.Editor;
-                    foreach (var storable in editor._storage.objs)
+                    var editor = (BoardEditor)drawer.Editor;
+                    foreach (var storable in editor.Storage.Objs)
                     {
                         if (storable is ObjectNode n && _references.Contains(n.UnityObject))
                         {
@@ -372,7 +401,7 @@
 
 
 
-        [Serializable] public abstract class TextNode : INode, SceneBoardStorage.IStorable
+        [Serializable] public abstract class TextNode : INode, IStorable
         {
             (float width, float outputSize) _cachedHeight;
             
